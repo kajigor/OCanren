@@ -135,6 +135,14 @@ val run : (unit ->
             ('b -> 'c * State.t RStream.t) * ('e -> 'd -> 'f)) ->
            'a -> 'e -> 'f RStream.t
 
+(** The same as [run], but it also computes the number of unifications done for each answer.
+*)
+val run_with_unification_counter :
+            (unit ->
+              ('a -> State.t -> 'b) * ('c -> VarEnv.t -> 'd) *
+              ('b -> 'c * State.t RStream.t) * ('e -> 'd -> 'f)) ->
+              'a -> 'e -> (int * 'f) RStream.t
+
 (** The primitive [delay] helps to construct recursive goals, which depend on themselves. For example,
     we can't write [let rec fives q = (q === !!5) ||| (fives q)] because the generation of this goal leads to
     infinite recursion. The correct way to implement this is [let rec fives q = (q === !!5) ||| delay (fun () -> fives q)]
@@ -363,8 +371,8 @@ module Tabling :
 val id : 'a -> 'a
 
 (** Unification counter *)
-val unification_counter : unit -> int                 
+val unification_counter : unit -> int
 val unification_time    : unit -> Mtime.span
 val conj_counter        : unit -> int
 val disj_counter        : unit -> int
-val delay_counter       : unit -> int                                    
+val delay_counter       : unit -> int

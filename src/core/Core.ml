@@ -33,13 +33,13 @@ let stat = {
     disj_counter      = 0;
     delay_counter     = 0
 }
-         
+
 let unification_counter () = stat.unification_count
-let unification_time    () = stat.unification_time 
-let conj_counter        () = stat.conj_counter 
-let disj_counter        () = stat.disj_counter 
-let delay_counter       () = stat.delay_counter 
-                          
+let unification_time    () = stat.unification_time
+let conj_counter        () = stat.conj_counter
+let disj_counter        () = stat.disj_counter
+let delay_counter       () = stat.delay_counter
+
 let unification_incr     () = stat.unification_count <- stat.unification_count + 1
 let unification_time_incr t =
   stat.unification_time <- Mtime.Span.add stat.unification_time (t ())
@@ -192,6 +192,7 @@ module State =
       ; ctrs  : Disequality.t
       ; prunes: Prunes.t
       ; scope : Term.Var.scope
+      ; unifs : int
       }
 
     type reified = VarEnv.t * Term.t
@@ -202,6 +203,7 @@ module State =
       ; ctrs  = Disequality.empty
       ; prunes = Prunes.empty
       ; scope = Term.Var.new_scope ()
+      ; unifs = 0
       }
 
     let env   {env} = env
@@ -209,12 +211,13 @@ module State =
     let constraints {ctrs} = ctrs
     let scope {scope} = scope
     let prunes {prunes} = prunes
+    let unifs {unifs} = unifs
 
     let fresh {env; scope} = VarEnv.fresh ~scope env
 
     let new_scope st = {st with scope = Term.Var.new_scope ()}
 
-    let unify x y ({env; subst; ctrs; scope} as st) =
+    let unify x y ({env; subst; ctrs; scope; unifs} as st) =
         match VarSubst.unify ~scope env subst x y with
         | None -> None
         | Some (prefix, subst) ->
@@ -223,7 +226,7 @@ module State =
           | Some ctrs ->
             match Prunes.recheck (prunes st) env subst with
             | Prunes.Violated -> None
-            | NonViolated -> Some {st with subst; ctrs}
+            | NonViolated -> Some {st with subst; ctrs; unifs = unifs + 1}
 
     let diseq x y ({env; subst; ctrs; scope} as st) =
       match Disequality.add env subst ctrs x y with
@@ -279,14 +282,14 @@ let (===) x y st =
   | None    -> unification_time_incr t; failure st
 
 let unify = (===)
-          
+
 let (=/=) x y st =
   match State.diseq x y st with
   | Some st -> success st
   | None    -> failure st
 
 let diseq = (=/=)
-          
+
 let delay g st =
   delay_counter_incr ();
   RStream.from_fun (fun () -> g () st)
@@ -418,6 +421,17 @@ let run n g h =
   RStream.bind stream (fun st -> RStream.of_list @@ State.reify args st)
   |> RStream.map (fun answ ->
     uncurr h @@ reifier (Obj.magic @@ Answer.ctr_term answ) (Answer.env answ)
+  )
+
+let run_with_unification_counter n g h =
+  let adder, reifier, ext, uncurr = n () in
+  let args, stream = ext @@ adder g @@ State.empty () in
+  RStream.bind stream (fun st ->
+    RStream.of_list
+    @@ List.map (fun ans -> (State.unifs st, ans))
+    @@ State.reify args st)
+  |> RStream.map (fun (unifs, answ) ->
+    (unifs, uncurr h @@ reifier (Obj.magic @@ Answer.ctr_term answ) (Answer.env answ))
   )
 
 (** ************************************************************************* *)
